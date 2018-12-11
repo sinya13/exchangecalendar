@@ -31,7 +31,9 @@ Cu.import("resource://calendar/modules/calProviderUtils.jsm");
 
 Cu.import("resource://exchangecalendar/erGetTimeZones.js");
 
-Cu.import("resource://interfaces/xml2jxon/mivIxml2jxon.js");
+//Cu.import("resource://interfaces/xml2jxon/mivIxml2jxon.js");
+
+Cu.import("resource://interfaces/xml2json/xml2json.js");
 
 function mivExchangeTimeZones() {
 	this._timeZones = {};
@@ -145,10 +147,10 @@ mivExchangeTimeZones.prototype = {
 					// Now we see if we have also a match on name.
 					var tmpScore = 0;
 					for each(var zonePart in tmpArray) {
-						if (exchangeTimeZone.id.indexOf(zonePart) > -1) {
+						if ((exchangeTimeZone.id) && (exchangeTimeZone.id.indexOf(zonePart) > -1)) {
 							tmpScore = tmpScore + 1;
 						}
-						if (exchangeTimeZone.name.indexOf(zonePart) > -1) {
+						if ((exchangeTimeZone.name) && (exchangeTimeZone.name.indexOf(zonePart) > -1)) {
 							tmpScore = tmpScore + 1;
 						}
 					}
@@ -191,13 +193,12 @@ mivExchangeTimeZones.prototype = {
 		if (!aTimeZone) return null;
 
 		var timeZoneId = null;
-		if (aTimeZone["getAttribute"]) {
-			timeZoneId = aTimeZone.getAttribute("Id", null);
+		if (aTimeZone[telements]) {
+			timeZoneId = xml2json.getAttribute(aTimeZone, "Id", null);
 		}
 		if (aTimeZone instanceof Ci.calITimezone) {
 			timeZoneId = aTimeZone.tzid;
 		}
-
 
 		if (!timeZoneId) return null;
 
@@ -257,6 +258,7 @@ mivExchangeTimeZones.prototype = {
 
 	getCalTimeZoneByExchangeTimeZone: function _getCalTimeZoneByExchangeTimeZone(aExchangeTimeZone, aURL, aIndexDate)
 	{
+//dump("getCalTimeZoneByExchangeTimeZone: aExchangeTimeZone:"+xml2json.toString(aExchangeTimeZone)+"\n");
 		var exchangeTimeZone = this.getTimeZone(aExchangeTimeZone, aIndexDate);
 
 		if (exchangeTimeZone == null) return null;
@@ -289,10 +291,11 @@ mivExchangeTimeZones.prototype = {
 
 				var tmpScore = 0;
 				for each(var zonePart in tmpArray) {
-					if (exchangeTimeZone.id.indexOf(zonePart) > -1) {
+
+					if ((exchangeTimeZone.id) && (exchangeTimeZone.id.indexOf(zonePart) > -1)) {
 						tmpScore = tmpScore + 1;
 					}
-					if (exchangeTimeZone.name.indexOf(zonePart) > -1) {
+					if ((exchangeTimeZone.name) && (exchangeTimeZone.name.indexOf(zonePart) > -1)) {
 						tmpScore = tmpScore + 1;
 					}
 				}
@@ -408,14 +411,13 @@ mivExchangeTimeZones.prototype = {
 
 	addExchangeTimeZones: function _addExchangeTimeZones(aTimeZoneDefinitions, aVersion)
 	{
-		var rm = aTimeZoneDefinitions.XPath("/s:Envelope/s:Body/m:GetServerTimeZonesResponse/m:ResponseMessages/m:GetServerTimeZonesResponseMessage");
+		var rm = xml2json.XPath(aTimeZoneDefinitions, "/s:Envelope/s:Body/m:GetServerTimeZonesResponse/m:ResponseMessages/m:GetServerTimeZonesResponseMessage");
 		if (rm.length == 0) return null;
-
 		this._timeZones[aVersion] = {};
 
-		var timeZoneDefinitionArray = rm[0].XPath("/m:TimeZoneDefinitions/t:TimeZoneDefinition");
+		var timeZoneDefinitionArray = xml2json.XPath(rm[0], "/m:TimeZoneDefinitions/t:TimeZoneDefinition");
 		for (var index in timeZoneDefinitionArray) {
-			this._timeZones[aVersion][timeZoneDefinitionArray[index].getAttribute("Id")] = timeZoneDefinitionArray[index];
+			this._timeZones[aVersion][xml2json.getAttribute(timeZoneDefinitionArray[index], "Id")] = timeZoneDefinitionArray[index];
 		}
 		timeZoneDefinitionArray = null;
 		rm = null;
@@ -442,10 +444,14 @@ mivExchangeTimeZones.prototype = {
 		} while(hasmore);  
 		  
 		istream.close();
+		var root = xml2json.newJSON();
+		xml2json.parseXML(root, lines);
+		var timezonedefinitions = root[telements][0];
+		this.addExchangeTimeZones(root, "Exchange2007_SP1");
 
-		var timezonedefinitions = new mivIxml2jxon(lines, 0, null);
-
-		this.addExchangeTimeZones(timezonedefinitions, "Exchange2007_SP1");
+		timezonedefinitions = null;
+		lines = null;
+		line = null;
 	},
 
 }

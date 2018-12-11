@@ -48,6 +48,7 @@ Cu.import("resource://calendar/modules/calUtils.jsm");
 Cu.import("resource://exchangecalendar/ecFunctions.js");
 
 Cu.import("resource://interfaces/xml2jxon/mivIxml2jxon.js");
+Cu.import("resource://interfaces/xml2json/xml2json.js");
 
 var EXPORTED_SYMBOLS = ["ExchangeRequest", "nsSoapStr","nsTypesStr","nsMessagesStr","nsAutodiscoverResponseStr1", "nsAutodiscoverResponseStr2", "nsAutodiscover2010Str", "nsErrors", "nsWSAStr", "nsXSIStr", "xml_tag"];
 
@@ -580,11 +581,68 @@ catch(err){
 		}
 	},
 
+	saveToFile: function _saveToFile(aFilename, aContent)
+	{
+		var file = Cc["@mozilla.org/file/directory_service;1"]
+				.getService(Components.interfaces.nsIProperties)
+				.get("ProfD", Components.interfaces.nsIFile);
+		file.append("exchange-data");
+		if ( !file.exists() || !file.isDirectory() ) {
+			file.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0777);  
+		}
+
+		file.append("responses");
+		if ( !file.exists() || !file.isDirectory() ) {
+			file.create(Components.interfaces.nsIFile.DIRECTORY_TYPE, 0777);  
+		}
+
+		if (!this.fileCount) {
+			this.fileCount = 0;
+		}
+		else {
+			this.fileCount++;
+		}
+
+		if (this.fileCount < 10) {
+			file.append(this.uuid+"-00"+this.fileCount+"."+aFilename);
+		}
+		else {
+			if (this.fileCount < 100) {
+				file.append(this.uuid+"-0"+this.fileCount+"."+aFilename);
+			}
+			else {
+				file.append(this.uuid+"-"+this.fileCount+"."+aFilename);
+			}
+		}
+
+		if (file.exists()) {
+			file.remove(false);
+		}
+
+//		file.create(Components.interfaces.nsIFile.NORMAL_FILE_TYPE, 0777);  
+
+		var foStream = Components.classes["@mozilla.org/network/file-output-stream;1"].  
+				 createInstance(Components.interfaces.nsIFileOutputStream);  
+		foStream.init(file, 0x02 | 0x08 | 0x20, 0777, 0);  
+
+		var converter = Components.classes["@mozilla.org/intl/converter-output-stream;1"].
+				createInstance(Components.interfaces.nsIConverterOutputStream);
+		converter.init(foStream, "UTF-8", 0, 0);
+		converter.writeString(aContent);
+		converter.close(); // this closes foStream
+		  
+		return 0;
+	},
+
+
 	onLoad:function _onLoad(evt) 
 	{
 		let xmlReq = this.mXmlReq;
 
 		if (this.debug) this.logInfo(": ExchangeRequest.onLoad :"+evt.type+", readyState:"+xmlReq.readyState+", status:"+xmlReq.status);
+
+		if (this.debug) this.logInfo(": ExchangeRequest.onLoad :"+xmlReq.getAllResponseHeaders(),2);
+
 		if (this.debug) this.logInfo(": ExchangeRequest.onLoad :"+xmlReq.responseText,2);
 
 		//this.exchangeStatistics.addDataRead(this.currentUrl, xmlReq.responseText.length);
@@ -607,28 +665,36 @@ catch(err){
 		}
 
 		var xml = xmlReq.responseText; // bug 270553
+		//this.saveToFile("onload.xml", xml);
 
 // Removed following as this is no longer a problem as we are not using E4X anymore.
 //		xml = xml.replace(/&#x10;/g, ""); // BUG 61 remove hexadecimal code 0x10. It will fail in xml conversion.
 
+		var newXML;
 		try {
-			var newXML = new mivIxml2jxon('', 0, null);
+			if (this.xml2json === true) {
+				newXML = xml2json.newJSON();
+			}
+			else {
+				newXML = new mivIxml2jxon('', 0, null);
+			}
 		}
 		catch(exc) { if (this.debug) this.logInfo("createInstance error:"+exc);}
 
 		try {
-			newXML.addNameSpace("s", nsSoapStr);
-			newXML.addNameSpace("m", nsMessagesStr);
-			newXML.addNameSpace("t", nsTypesStr);
-			newXML.addNameSpace("a1", nsAutodiscoverResponseStr1);
-			newXML.addNameSpace("a2", nsAutodiscoverResponseStr2);
-var d=new Date();var time1=d.getTime();
-			newXML.processXMLString(xml, 0, null);
-var d=new Date();var time2=d.getTime();
+			if (this.xml2json === true) {
+				xml2json.parseXML(newXML, xml);
+			}
+			else {
+				newXML.addNameSpace("s", nsSoapStr);
+				newXML.addNameSpace("m", nsMessagesStr);
+				newXML.addNameSpace("t", nsTypesStr);
+				newXML.addNameSpace("a1", nsAutodiscoverResponseStr1);
+				newXML.addNameSpace("a2", nsAutodiscoverResponseStr2);
+				newXML.processXMLString(xml, 0, null);
+			}
 		}
 		catch(exc) { if (this.debug) this.logInfo("processXMLString error:"+exc.name+", "+exc.message+"\n"+xml);} 
-
-//		dump("StringSize:"+xml.length+", xmlSize:"+newXML.getSize()+"\n");
 
 		this.mAuthFail = 0;
 		this.mRunning  = false;
@@ -636,21 +702,21 @@ var d=new Date();var time2=d.getTime();
 		if (this.mCbOk) {
 			// Try to get server version and store it.
 			try {
-				let serverVersion = newXML.XPath("/s:Header/ServerVersionInfo");
-				if ((serverVersion.length > 0) && (serverVersion[0].getAttribute("Version") != "")) {
-					this.exchangeStatistics.setServerVersion(this.currentUrl, serverVersion[0].getAttribute("Version"), serverVersion[0].getAttribute("MajorVersion"), serverVersion[0].getAttribute("MinorVersion"));
+				if (this.xml2json === true) {
+					let serverVersion = xml2json.XPath(newXML,"/Envelope/Header/ServerVersionInfo");
+					if ((serverVersion.length > 0) && (xml2json.getAttribute(serverVersion[0], "Version") !== null)) {
+						this.exchangeStatistics.setServerVersion(this.currentUrl, xml2json.getAttribute(serverVersion[0], "Version"), xml2json.getAttribute(serverVersion[0], "MajorVersion"), xml2json.getAttribute(serverVersion[0], "MinorVersion"));
+					}
+					serverVersion = null;
 				}
-/*				else {
-					var header = newXML.XPath("/s:Header");
-					if (header.length > 0) {
-						dump(" @@@ We have not found serverVersion:"+header[0]+"\n");
+				else {
+					let serverVersion = newXML.XPath("/s:Header/ServerVersionInfo");
+					if ((serverVersion.length > 0) && (serverVersion[0].getAttribute("Version") != "")) {
+						this.exchangeStatistics.setServerVersion(this.currentUrl, serverVersion[0].getAttribute("Version"), serverVersion[0].getAttribute("MajorVersion"), serverVersion[0].getAttribute("MinorVersion"));
 					}
-					else {
-						dump(" !!! Could not find header.\n");
-					}
-				}*/
-				serverVersion[0] = null;
-				serverVersion = null;
+					serverVersion[0] = null;
+					serverVersion = null;
+				}
 			}
 			catch(err) { }
 
@@ -660,11 +726,9 @@ var d=new Date();var time2=d.getTime();
 				exchWebService.prePasswords[this.mArgument.user+"@"+this.currentUrl].tryCount = 0;
 			}
 
-var d=new Date();var time3=d.getTime();
 try {
 			this.mCbOk(this, newXML);
-}catch(err) { dump("onload: err:"+err+"\n");}
-var d=new Date();var time4=d.getTime();
+}catch(err) { dump("onload: err:"+err+"\n"+this.globalFunctions.STACK()+"\n"+xml+"\n");}
 			this.originalReq = null;
 		}
 
@@ -791,19 +855,19 @@ var d=new Date();var time4=d.getTime();
 							var tryAgain = false;
 							switch(this.version) {
 							case "Exchange2010":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2007_SP1");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2007_SP1", null, null);
 								tryAgain = true;
 								break;
 							case "Exchange2010_SP1":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010", null, null);
 								tryAgain = true;
 								break;
 							case "Exchange2010_SP2":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP1");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP1", null, null);
 								tryAgain = true;
 								break;
 							case "Exchange2013":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP2");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP2", null, null);
 								tryAgain = true;
 								break;
 							default:
@@ -824,19 +888,19 @@ var d=new Date();var time4=d.getTime();
 							var tryAgain = false;
 							switch(this.version) {
 							case "Exchange2007_SP1":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010", null, null);
 								tryAgain = true;
 								break;
 							case "Exchange2010":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP1");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP1", null, null);
 								tryAgain = true;
 								break;
 							case "Exchange2010_SP1":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP2");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2010_SP2", null, null);
 								tryAgain = true;
 								break;
 							case "Exchange2010_SP2":
-								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2013");
+								this.exchangeStatistics.setServerVersion(this.mArgument.serverUrl, "Exchange2013", null, null);
 								tryAgain = true;
 								break;
 							default:
@@ -944,6 +1008,47 @@ var d=new Date();var time4=d.getTime();
 		this.originalReq = null;
 	},
 
+	makeSoapMessage2: function erMakeSoapMessage2(aReq)
+	{
+		this.originalReq = aReq;
+
+		var root = xml2json.newJSON();
+		var msg = xml2json.addTag(root, "Envelope", "nsSoap");
+		xml2json.setAttribute(msg, "xmlns:nsSoap", nsSoapStr);
+		xml2json.setAttribute(msg, "xmlns:nsMessages", nsMessagesStr);
+		xml2json.setAttribute(msg, "xmlns:nsTypes", nsTypesStr);
+
+		this.version = this.exchangeStatistics.getServerVersion(this.mArgument.serverUrl);
+		
+		var header = xml2json.addTag(msg,"Header", "nsSoap", null);
+
+		var requestServerVersion = xml2json.addTag(header, "RequestServerVersion", "nsTypes", null);
+		xml2json.setAttribute(requestServerVersion, "Version", this.version);
+		
+		var exchTimeZone = this.timeZones.getExchangeTimeZoneByCalTimeZone(this.globalFunctions.ecDefaultTimeZone(), this.mArgument.serverUrl, cal.now());
+
+		if (exchTimeZone) {
+				let timeZoneContext = xml2json.addTag(header, "TimeZoneContext", "nsTypes", null);
+				let tmpTimeZone = xml2json.addTag(timeZoneContext, "TimeZoneDefinition", "nsTypes");
+				if (this.version.indexOf("2007") < 0) {
+					xml2json.setAttribute(tmpTimeZone, "Name",exchTimeZone.name);
+				}
+				xml2json.setAttribute(tmpTimeZone, "Id",exchTimeZone.id);
+				tmpTimeZone = null;
+				timeZoneContext = null;
+		}
+		header = null;
+
+		let body = xml2json.addTag(msg, "Body", "nsSoap", null);
+		xml2json.addTagObject(body, aReq);
+		body = null;
+
+		var tmpStr = xml_tag + xml2json.toString(root);
+		msg = null;
+		root = null;
+		return tmpStr;
+	},
+
 	makeSoapMessage: function erMakeSoapMessage(aReq)
 	{
 		this.originalReq = aReq;
@@ -954,12 +1059,12 @@ var d=new Date();var time4=d.getTime();
 		
 		var header = msg.addChildTag("Header", "nsSoap", null);
 
-		if (this.mArgument.ServerVersion) {
+/*		if (this.mArgument.ServerVersion) {
 			header.addChildTag("RequestServerVersion", "nsTypes", null).setAttribute("Version", this.mArgument.ServerVersion);
 		}
-		else {
+		else {*/
 			header.addChildTag("RequestServerVersion", "nsTypes", null).setAttribute("Version", this.version);
-		}
+//		}
 		
 		var exchTimeZone = this.timeZones.getExchangeTimeZoneByCalTimeZone(this.globalFunctions.ecDefaultTimeZone(), this.mArgument.serverUrl, cal.now());
 
@@ -993,15 +1098,27 @@ var d=new Date();var time4=d.getTime();
 
 	getSoapErrorMsg: function _getSoapErrorMsg(aResp)
 	{
-		var rm = aResp.XPath("/s:Envelope/s:Body/*/m:ResponseMessages/*[@ResponseClass='Error']");
-		var result;
-		if (rm.length > 0) {
-			result = rm[0].getTagValue("m:MessageText").value+"("+rm[0].getTagValue("m:ResponseCode")+")";
+		if (this.xml2json) {
+			var rm = xml2json.XPath(aResp, "/s:Envelope/s:Body/*/m:ResponseMessages/*[@ResponseClass='Error']");
+			var result;
+			if (rm.length > 0) {
+				result = xml2json.getTagValue(rm[0], "m:MessageText").value+"("+xml2json.getTagValue(rm[0], "m:ResponseCode")+")";
+			}
+			else {
+				result = null;
+			}
 		}
 		else {
-			result = null;
-		}
+			var rm = aResp.XPath("/s:Envelope/s:Body/*/m:ResponseMessages/*[@ResponseClass='Error']");
+			var result;
+			if (rm.length > 0) {
+				result = rm[0].getTagValue("m:MessageText").value+"("+rm[0].getTagValue("m:ResponseCode")+")";
+			}
+			else {
+				result = null;
+			}
 
+		}
 		rm = null;
 		return result
 	},

@@ -84,12 +84,12 @@ mivExchangeStatistics.prototype = {
 	{
 		if (aMajorVersion == 15) {
 			this.serverVersions[aURL] = "Exchange2013";
-			if (aMinorVersion > 0) this.serverVersions[aURL] = this.serverVersions[aURL] + "_SP" + aMinorVersion;
+			//if (aMinorVersion > 0) this.serverVersions[aURL] = this.serverVersions[aURL] + "_SP" + aMinorVersion;
 		}
 		else {
 			if (aMajorVersion == 14) {
 				this.serverVersions[aURL] = "Exchange2010";
-				if (aMinorVersion > 2) {
+				if (aMinorVersion > 1) {
 					this.serverVersions[aURL] = this.serverVersions[aURL] + "_SP2";
 				}
 				else {
@@ -99,7 +99,7 @@ mivExchangeStatistics.prototype = {
 			else {
 				if (aMajorVersion == 8) {
 					this.serverVersions[aURL] = "Exchange2007";
-					if (aMinorVersion > 0) this.serverVersions[aURL] = this.serverVersions[aURL] + "_SP" + aMinorVersion;
+					if (aMinorVersion > 0) this.serverVersions[aURL] = this.serverVersions[aURL] + "_SP1";
 				}
 				else {
 					this.serverVersions[aURL] = aVersion;

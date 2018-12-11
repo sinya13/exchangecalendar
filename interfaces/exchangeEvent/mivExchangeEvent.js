@@ -32,8 +32,17 @@ Cu.import("resource://exchangecalendar/ecExchangeRequest.js");
 Cu.import("resource://calendar/modules/calProviderUtils.jsm");
 
 Cu.import("resource://interfaces/exchangeBaseItem/mivExchangeBaseItem.js");
+Cu.import("resource://interfaces/xml2json/xml2json.js");
 
-//var EXPORTED_SYMBOLS = ["mivExchangeEvent"];
+
+var EXPORTED_SYMBOLS = ["mivExchangeEvent"];
+
+exchGlobalFunctions = Cc["@1st-setup.nl/global/functions;1"]
+					.getService(Ci.mivFunctions);
+
+exchTimeZones = Cc["@1st-setup.nl/exchange/timezones;1"]
+			.getService(Ci.mivExchangeTimeZones);
+
 
 function mivExchangeEvent() {
 
@@ -87,40 +96,61 @@ mivExchangeEvent.prototype = {
 					.createInstance(Ci.calIEvent);
 	},
 
+	cloneFrom: function _cloneFrom(aItem)
+	{
+try{
+		this.baseCloneFrom(aItem);
+		if (aItem._startDate) this._startDate = aItem._startDate;
+		if (aItem._endDate) this._endDate = aItem._endDate;
+		if (aItem._duration) this._duration = aItem._duration.clone();
+		if (aItem._status) this._status = aItem._status;
+}
+catch(err){
+	dump(" @@@@@@@@@@@@@ mivExchangeEvent: cloneFrom Error:"+err+"\n");
+}
+	},
+
+	clone: function _clone()
+	{
+try {
+		//dump("mivExchangeEvent: clone 1: title:"+this.title+", this.calendarItemType:"+this.calendarItemType+", startDate:"+this.startDate+"\n");
+
+		var result = new mivExchangeEvent();
+
+		result.baseClone(this);
+
+		if (this._newStartDate !== undefined) result.startDate = this.startDate.clone();
+		if (this._newEndDate !== undefined) result.endDate = this.endDate.clone();
+
+		if (this._newStatus) {
+			result.status = this._newStatus;
+		}
+}
+catch(err){
+  dump("mivExchangeEvent: Clone: error:"+err+"\n");
+}
+		//dump("mivExchangeEvent: clone 2: title:"+this.title+", this.calendarItemType:"+this.calendarItemType+", startDate:"+this.startDate+"\n");
+		return result;
+	},
+
 	get startDate()
 	{
-		//this.logInfo("get startdate 1: title:"+this.title);
-		if (!this._startDate) {
-			this._startDate = this.tryToSetDateValue(this.getTagValue("t:Start", null), this._calEvent.startDate);
-			if (this._startDate) {
-				if (this.isAllDayEvent) this._startDate.isDate = true;
+		//dump("get startdate 1: title:"+this.title);
+		//dump("get startdate 2: title:"+this.title+", startdate=="+this._calEvent.startDate);
 
-				if (this.startTimeZoneId) {
-					var timezone = this.timeZones.getCalTimeZoneByExchangeTimeZone(this.getTag("t:StartTimeZone"), "", this._startDate);
-				}
-				else {
-					if (this.meetingTimeZone) {
-						var timezone = this.timeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.meetingTimeZone, this._startDate);
-					}
-					else {
-						if (this.timeZone) {
-							var timezone = this.timeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.timeZone, this._startDate);
-						}
-					}
-				}
-				if (timezone) {
-					this._startDate = this._startDate.getInTimezone(timezone);
-				}
-				this._calEvent.startDate = this._startDate.clone();
-			}
+		if (this._newStartDate) {
+			return this._newStartDate;
 		}
-		//this.logInfo("get startdate 2: title:"+this.title+", startdate=="+this._calEvent.startDate);
+
+		if (this._startDate) {
+			return this._startDate;
+		}
+
 		return this._calEvent.startDate;
 	},
 
 	set startDate(aValue)
 	{
-		//dump("set startdate: title:"+this.title+", aValue:"+aValue+"\n");
 		if (aValue.toString() != this.startDate.toString()) {
 			this._newStartDate = aValue;
 			this._calEvent.startDate = aValue;
@@ -129,36 +159,21 @@ mivExchangeEvent.prototype = {
 
 	get endDate()
 	{
-		if (!this._endDate) {
-			this._endDate = this.tryToSetDateValue(this.getTagValue("t:End", null), this._calEvent.endDate);
-			if (this._endDate) {
-				if (this.isAllDayEvent) this._endDate.isDate = true;
-				if (this.endTimeZoneId) {
-					var timezone = this.timeZones.getCalTimeZoneByExchangeTimeZone(this.getTag("t:EndTimeZone"), "", this._endDate);
-				}
-				else {
-					if (this.meetingTimeZone) {
-						var timezone = this.timeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.meetingTimeZone, this._endDate);
-					}
-					else {
-						if (this.timeZone) {
-							var timezone = this.timeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.timeZone, this._endDate);
-						}
-					}
-				}
-				if (timezone) {
-					this._endDate = this._endDate.getInTimezone(timezone);
-				}
-				this._calEvent.endDate = this._endDate.clone();
-			}
+		//dump("get endDate: title:"+this.title+", endDate=="+this._calEvent.endDate, -1);
+		if (this._newEndDate) {
+			return this._newEndDate;
 		}
-		//this.logInfo("get endDate: title:"+this.title+", endDate=="+this._calEvent.endDate, -1);
+
+		if (this._endDate) {
+			return this._endDate;
+		}
+
 		return this._calEvent.endDate;
 	},
 
 	set endDate(aValue)
 	{
-		//this.logInfo("set enddate: title:"+this.title+", aValue:"+aValue);
+		//dump("set enddate: title:"+this.title+", aValue:"+aValue);
 		if (aValue.toString() != this.endDate.toString()) {
 			this._newEndDate = aValue;
 			this._calEvent.endDate = aValue;
@@ -167,14 +182,7 @@ mivExchangeEvent.prototype = {
 
 	get duration()
 	{
-		if ((!this._duration) && (!this._newEndDate) && (!this._newStartDate)) {
-			this._duration = this.getTagValue("t:Duration", null);
-			if (this._duration) {
-				//this.logInfo("get duration: title:"+this.title+", value:"+cal.createDuration(this._duration));
-				return cal.createDuration(this._duration);
-			}
-		}
-		//this.logInfo("get duration: title:"+this.title+", value:"+this._calEvent.duration);
+		//dump("get duration: title:"+this.title+", value:"+this._calEvent.duration);
 		return this._calEvent.duration;
 	},
 
@@ -182,28 +190,33 @@ mivExchangeEvent.prototype = {
 	//attribute AUTF8String status;
 	get status()
 	{
-		if (!this._status) {
-			this._status = this.myResponseType;
+		//dump("get status: title:"+this.title+", value:"+this._calEvent.status+", this._status:"+this._status);
+		const statusMap = {
+			"Unknown"	: "NONE",
+			"NoResponseReceived" : "NONE",
+			"Tentative"	: "TENTATIVE",
+			"Accept"	: "CONFIRMED",
+			"Decline"	: "CANCELLED",
+			"Organizer"	: "CONFIRMED",
+			null: null
+		};
 
-			const statusMap = {
-				"Unknown"	: "NONE",
-				"NoResponseReceived" : "NONE",
-				"Tentative"	: "TENTATIVE",
-				"Accept"	: "CONFIRMED",
-				"Decline"	: "CANCELLED",
-				"Organizer"	: "CONFIRMED",
-				null: null
-			};
+		if (this._newStatus !== undefined) {
 
-			this._calEvent.status = statusMap[this._status];
+			return statusMap[this._newStatus];
 		}
-		//this.logInfo("get status: title:"+this.title+", value:"+this._calEvent.status+", this._status:"+this._status);
+
+		if (this._status !== undefined) {
+
+			return statusMap[this._status];
+		}
+
 		return this._calEvent.status;
 	},
 
 	set status(aValue)
 	{
-		//this.logInfo("set status: title:"+this.title+", aValue:"+aValue);
+		//dump("set status: title:"+this.title+", aValue:"+aValue);
 		if (aValue != this.status) {
 			const statuses = { "NONE": "NoResponseReceived",
 					"TENTATIVE": "Tentative", 
@@ -220,7 +233,7 @@ mivExchangeEvent.prototype = {
 	{
 		this._nonPersonalDataChanged = false;
 
-		var updates = this.globalFunctions.xmlToJxon('<t:Updates xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+		var updates = exchGlobalFunctions.xmlToJxon('<t:Updates xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
 
 		if (this.isInvitation) {
 			// Only can accept/decline/tentative
@@ -242,15 +255,34 @@ mivExchangeEvent.prototype = {
 			if (this._newPrivacy) {
 				this.addSetItemField(updates, "Sensitivity", this._newPrivacy);
 			}
-			if (this._newBody !== undefined) {
-				this._nonPersonalDataChanged = true;
-				if (this._newBody === null) {
-					this.addDeleteItemField(updates, "Body");
-				}
-				else {
-					this.addSetItemField(updates, "Body", this._newBody, { BodyType: "Text" });
+
+//dump("updatexml1: this.bodyType:"+this.bodyType+"\n");
+//dump("updatexml2: this._newBody:"+this._newBody+"\n");
+//dump("updatexml3: this._newBody2:"+this._newBody2+"\n");
+
+			if (this.bodyType == "HTML") {
+				if (this._newBody2 !== undefined) {
+					this._nonPersonalDataChanged = true;
+					if (this._newBody2 === null) {
+						this.addDeleteItemField(updates, "Body");
+					}
+					else {
+						this.addSetItemField(updates, "Body", this._newBody2, { BodyType: "HTML" });
+					}
 				}
 			}
+			else {
+				if (this._newBody !== undefined) {
+					this._nonPersonalDataChanged = true;
+					if (this._newBody === null) {
+						this.addDeleteItemField(updates, "Body");
+					}
+					else {
+						this.addSetItemField(updates, "Body", this._newBody, { BodyType: "Text" });
+					}
+				}
+			}
+//dump("updatexml4: body\n");
 			// Categories
 			if (this._changesCategories) {
 				var categoriesXML = Cc["@1st-setup.nl/conversion/xml2jxon;1"]
@@ -310,9 +342,9 @@ mivExchangeEvent.prototype = {
 			}
 			else {
 				// We did not have recurrence info. Check if we have now
-				//this.logInfo("We did not have recurrenceInfo. See if it was added.");
+				//dump("We did not have recurrenceInfo. See if it was added.\n");
 				if (this._newRecurrenceInfo) {
-					//this.logInfo("We did not have recurrenceInfo. But we do have now.");
+					//dump("We did not have recurrenceInfo. But we do have now.\n");
 					recurrenceInfoChanged = true;
 				}
 			}
@@ -337,13 +369,13 @@ mivExchangeEvent.prototype = {
 					//tmpDuration.minutes = -60;
 					//tmpStart.addDuration(tmpDuration);
 
-					// We make a non-UTC datetime value for this.globalFunctions.
+					// We make a non-UTC datetime value for exchGlobalFunctions.
 					// EWS will use the MeetingTimeZone or StartTimeZone and EndTimeZone to convert.
 //					var exchStart = cal.toRFC3339(tmpStart).substr(0, 19)+"Z"; //cal.toRFC3339(tmpStart).length-6);
 					var exchStart = cal.toRFC3339(tmpStart).substr(0, 19); //cal.toRFC3339(tmpStart).length-6);
 				}
 				else {
-					// We set in bias advanced to UCT datetime values for this.globalFunctions.
+					// We set in bias advanced to UCT datetime values for exchGlobalFunctions.
 //					var exchStart = cal.toRFC3339(tmpStart.getInTimezone(cal.UTC()));
 					var exchStart = cal.toRFC3339(tmpStart).substr(0, 19);
 				}
@@ -351,17 +383,21 @@ mivExchangeEvent.prototype = {
 				this.addSetItemField(updates, "Start", exchStart);
 
 				if (!this.calendar.isVersion2007) {
-					var exchTimeZone = this.timeZones.getExchangeTimeZoneByCalTimeZone(this._newStartDate.timezone, this.calendar.serverUrl, this._newStartDate);
-//					var tmpTimeZone = this.globalFunctions.xmlToJxon('<t:StartTimeZone Name="'+exchTimeZone.name+'" Id="'+exchTimeZone.id+'" xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
-					var tmpTimeZone = this.globalFunctions.xmlToJxon('<t:StartTimeZone xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+					var exchTimeZone = exchTimeZones.getExchangeTimeZoneByCalTimeZone(this._newStartDate.timezone, this.calendar.serverUrl, this._newStartDate);
+//					var tmpTimeZone = exchGlobalFunctions.xmlToJxon('<t:StartTimeZone Name="'+exchTimeZone.name+'" Id="'+exchTimeZone.id+'" xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+					var tmpTimeZone = exchGlobalFunctions.xmlToJxon('<t:StartTimeZone xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
 					tmpTimeZone.setAttribute("Name",exchTimeZone.name); 
 					tmpTimeZone.setAttribute("Id",exchTimeZone.id); 
-					var periods = exchTimeZone.timeZone.getTag("t:Periods");
-					var transitionsGroups = exchTimeZone.timeZone.getTag("t:TransitionsGroups");
-					var transitions = exchTimeZone.timeZone.getTag("t:Transitions");
-					tmpTimeZone.addChildTagObject(periods);
-					tmpTimeZone.addChildTagObject(transitionsGroups);
-					tmpTimeZone.addChildTagObject(transitions);
+					var periods = xml2json.getTag(exchTimeZone.timeZone, "t:Periods");
+					var transitionsGroups = xml2json.getTag(exchTimeZone.timeZone, "t:TransitionsGroups");
+					var transitions = xml2json.getTag(exchTimeZone.timeZone, "t:Transitions");
+
+					var tmpPeriods = exchGlobalFunctions.xmlToJxon(xml2json.toString(periods));
+					tmpTimeZone.addChildTagObject(tmpPeriods);
+					var tmpTransitionsGroups = exchGlobalFunctions.xmlToJxon(xml2json.toString(transitionsGroups));
+					tmpTimeZone.addChildTagObject(tmpTransitionsGroups);
+					var tmpTransitions = exchGlobalFunctions.xmlToJxon(xml2json.toString(transitions));
+					tmpTimeZone.addChildTagObject(tmpTransitions);
 
 					this.addSetItemField(updates, "StartTimeZone", tmpTimeZone, null, true);
 				}
@@ -376,13 +412,13 @@ mivExchangeEvent.prototype = {
 					tmpDuration.minutes = -61;
 					tmpEnd.addDuration(tmpDuration);
 
-					// We make a non-UTC datetime value for this.globalFunctions.
+					// We make a non-UTC datetime value for exchGlobalFunctions.
 					// EWS will use the MeetingTimeZone or StartTimeZone and EndTimeZone to convert.
 //					var exchEnd = cal.toRFC3339(tmpEnd).substr(0, 19)+"Z"; //cal.toRFC3339(tmpEnd).length-6);
 					var exchEnd = cal.toRFC3339(tmpEnd).substr(0, 19); //cal.toRFC3339(tmpEnd).length-6);
 				}
 				else {
-					// We set in bias advanced to UCT datetime values for this.globalFunctions.
+					// We set in bias advanced to UCT datetime values for exchGlobalFunctions.
 //					var exchEnd = cal.toRFC3339(tmpEnd.getInTimezone(cal.UTC()));
 					var exchEnd = cal.toRFC3339(tmpEnd).substr(0, 19);
 				}
@@ -390,17 +426,21 @@ mivExchangeEvent.prototype = {
 				this.addSetItemField(updates, "End", exchEnd);
 
 				if (!this.calendar.isVersion2007) {
-					var exchTimeZone = this.timeZones.getExchangeTimeZoneByCalTimeZone(this._newEndDate.timezone, this.calendar.serverUrl, this._newEndDate);
-//					var tmpTimeZone = this.globalFunctions.xmlToJxon('<t:EndTimeZone Name="'+exchTimeZone.name+'" Id="'+exchTimeZone.id+'" xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
-					var tmpTimeZone = this.globalFunctions.xmlToJxon('<t:EndTimeZone xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+					var exchTimeZone = exchTimeZones.getExchangeTimeZoneByCalTimeZone(this._newEndDate.timezone, this.calendar.serverUrl, this._newEndDate);
+//					var tmpTimeZone = exchGlobalFunctions.xmlToJxon('<t:EndTimeZone Name="'+exchTimeZone.name+'" Id="'+exchTimeZone.id+'" xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+					var tmpTimeZone = exchGlobalFunctions.xmlToJxon('<t:EndTimeZone xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
 					tmpTimeZone.setAttribute("Name",exchTimeZone.name); 
 					tmpTimeZone.setAttribute("Id",exchTimeZone.id); 
-					var periods = exchTimeZone.timeZone.getTag("t:Periods");
-					var transitionsGroups = exchTimeZone.timeZone.getTag("t:TransitionsGroups");
-					var transitions = exchTimeZone.timeZone.getTag("t:Transitions");
-					tmpTimeZone.addChildTagObject(periods);
-					tmpTimeZone.addChildTagObject(transitionsGroups);
-					tmpTimeZone.addChildTagObject(transitions);
+					var periods = xml2json.getTag(exchTimeZone.timeZone, "t:Periods");
+					var transitionsGroups = xml2json.getTag(exchTimeZone.timeZone, "t:TransitionsGroups");
+					var transitions = xml2json.getTag(exchTimeZone.timeZone, "t:Transitions");
+
+					var tmpPeriods = exchGlobalFunctions.xmlToJxon(xml2json.toString(periods));
+					tmpTimeZone.addChildTagObject(tmpPeriods);
+					var tmpTransitionsGroups = exchGlobalFunctions.xmlToJxon(xml2json.toString(transitionsGroups));
+					tmpTimeZone.addChildTagObject(tmpTransitionsGroups);
+					var tmpTransitions = exchGlobalFunctions.xmlToJxon(xml2json.toString(transitions));
+					tmpTimeZone.addChildTagObject(tmpTransitions);
 
 					this.addSetItemField(updates, "EndTimeZone", tmpTimeZone, null, true);
 				}
@@ -431,10 +471,10 @@ mivExchangeEvent.prototype = {
 
 			if (((this._newStartDate) || (this._newEndDate)) && (this.calendar.isVersion2007)) {
 				if (this._newStartDate) {
-					this.addSetItemField(updates, "MeetingTimeZone", null, { TimeZoneName: this.timeZones.getExchangeTimeZoneIdByCalTimeZone(this._newStartDate.timezone, this.calendar.serverUrl, this._newStartDate)});
+					this.addSetItemField(updates, "MeetingTimeZone", null, { TimeZoneName: exchTimeZones.getExchangeTimeZoneIdByCalTimeZone(this._newStartDate.timezone, this.calendar.serverUrl, this._newStartDate)});
 				}
 				else {
-					this.addSetItemField(updates, "MeetingTimeZone", null, { TimeZoneName: this.timeZones.getExchangeTimeZoneIdByCalTimeZone(this._newEndDate.timezone, this.calendar.serverUrl, this._newEndDate)});
+					this.addSetItemField(updates, "MeetingTimeZone", null, { TimeZoneName: exchTimeZones.getExchangeTimeZoneIdByCalTimeZone(this._newEndDate.timezone, this.calendar.serverUrl, this._newEndDate)});
 				}
 			}
 
@@ -466,7 +506,7 @@ mivExchangeEvent.prototype = {
 						switch (attendee.role) {
 						case "REQ-PARTICIPANT":
 							if (reqAttendeeCount == 0) {
-								var reqAttendees = this.globalFunctions.xmlToJxon('<t:Attendee xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+								var reqAttendees = exchGlobalFunctions.xmlToJxon('<t:Attendee xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
 								var ae = reqAttendees;
 							}
 							else {
@@ -476,7 +516,7 @@ mivExchangeEvent.prototype = {
 							break;
 						case "OPT-PARTICIPANT":
 							if (optAttendeeCount == 0) {
-								var optAttendees = this.globalFunctions.xmlToJxon('<t:Attendee xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
+								var optAttendees = exchGlobalFunctions.xmlToJxon('<t:Attendee xmlns:m="'+nsMessagesStr+'" xmlns:t="'+nsTypesStr+'"/>');
 								var ae = optAttendees;
 							}
 							else {
@@ -528,6 +568,83 @@ mivExchangeEvent.prototype = {
 
 		//dump("updates:"+updates.toString()+"\n");
 		return updates;
+	},
+
+	preLoad: function _preLoad()
+	{
+		this._startDate = this.tryToSetDateValue(this.getTagValue("t:Start", null), this._calEvent.startDate);
+		if (this._startDate) {
+			if (this.isAllDayEvent) this._startDate.isDate = true;
+
+			if (this.startTimeZoneId) {
+				var timezone = exchTimeZones.getCalTimeZoneByExchangeTimeZone(this.getTag("t:StartTimeZone"), "", this._startDate);
+			}
+			else {
+				if (this.meetingTimeZone) {
+					var timezone = exchTimeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.meetingTimeZone, this._startDate);
+				}
+				else {
+					if (this.timeZone) {
+						var timezone = exchTimeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.timeZone, this._startDate);
+					}
+				}
+			}
+			if (timezone) {
+				this._startDate = this._startDate.getInTimezone(timezone);
+			}
+			this._calEvent.startDate = this._startDate.clone();
+		}
+
+		this._endDate = this.tryToSetDateValue(this.getTagValue("t:End", null), this._calEvent.endDate);
+		if (this._endDate) {
+			if (this.isAllDayEvent) this._endDate.isDate = true;
+			if (this.endTimeZoneId) {
+				var timezone = exchTimeZones.getCalTimeZoneByExchangeTimeZone(this.getTag("t:EndTimeZone"), "", this._endDate);
+			}
+			else {
+				if (this.meetingTimeZone) {
+					var timezone = exchTimeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.meetingTimeZone, this._endDate);
+				}
+				else {
+					if (this.timeZone) {
+						var timezone = exchTimeZones.getCalTimeZoneByExchangeMeetingTimeZone(this.timeZone, this._endDate);
+					}
+				}
+			}
+			if (timezone) {
+				this._endDate = this._endDate.getInTimezone(timezone);
+			}
+			this._calEvent.endDate = this._endDate.clone();
+		}
+
+	},
+
+	postLoad: function _postLoad()
+	{
+		if ((!this._duration) && (!this._newEndDate) && (!this._newStartDate)) {
+			this._duration = this.getTagValue("t:Duration", null);
+			if (this._duration) {
+				//dump("get duration: title:"+this.title+", value:"+cal.createDuration(this._duration));
+				this._duration = cal.createDuration(this._duration);
+			}
+		}
+
+		if (!this._status) {
+			this._status = this.myResponseType;
+
+			const statusMap = {
+				"Unknown"	: "NONE",
+				"NoResponseReceived" : "NONE",
+				"Tentative"	: "TENTATIVE",
+				"Accept"	: "CONFIRMED",
+				"Decline"	: "CANCELLED",
+				"Organizer"	: "CONFIRMED",
+				null: null
+			};
+
+			this._calEvent.status = statusMap[this._status];
+		}
+
 	},
 
 };
